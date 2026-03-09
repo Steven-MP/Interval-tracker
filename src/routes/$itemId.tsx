@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import { Navbar } from "@/components/layout/Navbar"
 import { LiveCounter, formatDuration } from "@/components/shared/LiveCounter"
@@ -54,7 +54,7 @@ function ItemDetailPage() {
 		return () => clearInterval(timer)
 	}, [])
 
-	async function loadData() {
+	const loadData = useCallback(async () => {
 		if (!user) return
 		try {
 			const [itemDoc, intRes] = await Promise.all([
@@ -75,11 +75,11 @@ function ItemDetailPage() {
 		} finally {
 			setIsLoading(false)
 		}
-	}
+	}, [user, itemId])
 
 	useEffect(() => {
 		loadData()
-	}, [user, itemId])
+	}, [loadData])
 
 	const activeInterval = intervals.find((i) => !i.endedAt) ?? null
 	const completedIntervals = intervals.filter((i) => i.endedAt)

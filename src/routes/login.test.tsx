@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, afterEach, beforeAll } from "bun:test"
-import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react"
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react"
 
 const mockNavigate = mock(() => {})
 const mockLogin = mock(async (_email: string, _password: string) => {})
