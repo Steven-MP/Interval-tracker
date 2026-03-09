@@ -72,14 +72,14 @@ function writeJson(key: string, value: unknown) {
 
 export function applyOrder(items: Models.Document[], savedIds: string[]): Models.Document[] {
 	const map = new Map(items.map((i) => [i.$id, i]))
-	const ordered = savedIds.flatMap((id) => (map.has(id) ? [map.get(id)!] : []))
+	const ordered = savedIds.flatMap((id) => { const v = map.get(id); return v ? [v] : [] })
 	const rest = items.filter((i) => !savedIds.includes(i.$id))
 	return [...ordered, ...rest]
 }
 
 export function applyItemOrder(items: ItemWithInterval[], savedIds: string[]): ItemWithInterval[] {
 	const map = new Map(items.map((i) => [i.item.$id, i]))
-	const ordered = savedIds.flatMap((id) => (map.has(id) ? [map.get(id)!] : []))
+	const ordered = savedIds.flatMap((id) => { const v = map.get(id); return v ? [v] : [] })
 	const rest = items.filter((i) => !savedIds.includes(i.item.$id))
 	return [...ordered, ...rest]
 }
@@ -547,7 +547,6 @@ function HomePage() {
 							value={newGroupName}
 							onChange={(e) => setNewGroupName(e.target.value)}
 							disabled={isCreatingGroup}
-							// biome-ignore lint/a11y/noAutofocus: intentional UX
 							autoFocus
 							onKeyDown={(e) => {
 								if (e.key === "Escape") setIsAddingGroup(false)

@@ -48,7 +48,8 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
-				<script dangerouslySetInnerHTML={{ __html: DARK_MODE_SCRIPT }} />
+				{/* biome-ignore lint/security/noDangerouslySetInnerHtml: intentional — inline script for flicker-free dark mode before first paint */}
+			<script dangerouslySetInnerHTML={{ __html: DARK_MODE_SCRIPT }} />
 				<HeadContent />
 			</head>
 			<body>
