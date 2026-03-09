@@ -40,7 +40,7 @@ export const Route = createFileRoute("/")({
 	component: HomePage,
 })
 
-interface ItemWithInterval {
+export interface ItemWithInterval {
 	item: Models.Document
 	activeInterval: Models.Document | null
 }
@@ -70,14 +70,14 @@ function writeJson(key: string, value: unknown) {
 	localStorage.setItem(key, JSON.stringify(value))
 }
 
-function applyOrder(items: Models.Document[], savedIds: string[]): Models.Document[] {
+export function applyOrder(items: Models.Document[], savedIds: string[]): Models.Document[] {
 	const map = new Map(items.map((i) => [i.$id, i]))
 	const ordered = savedIds.flatMap((id) => (map.has(id) ? [map.get(id)!] : []))
 	const rest = items.filter((i) => !savedIds.includes(i.$id))
 	return [...ordered, ...rest]
 }
 
-function applyItemOrder(items: ItemWithInterval[], savedIds: string[]): ItemWithInterval[] {
+export function applyItemOrder(items: ItemWithInterval[], savedIds: string[]): ItemWithInterval[] {
 	const map = new Map(items.map((i) => [i.item.$id, i]))
 	const ordered = savedIds.flatMap((id) => (map.has(id) ? [map.get(id)!] : []))
 	const rest = items.filter((i) => !savedIds.includes(i.item.$id))

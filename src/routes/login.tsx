@@ -18,7 +18,7 @@ export const Route = createFileRoute("/login")({
 
 type Mode = "login" | "register"
 
-function LoginPage() {
+export function LoginPage() {
 	const [mode, setMode] = useState<Mode>("login")
 	const [email, setEmail] = useState("")
 	const [password, setPassword] = useState("")
