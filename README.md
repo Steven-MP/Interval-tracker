@@ -71,6 +71,21 @@ bun run build
 bun run preview
 ```
 
+## Tests
+
+```bash
+bun test
+```
+
+Tests use Bun's built-in Jest-compatible runner with [happy-dom](https://github.com/capricorn86/happy-dom) for the DOM environment and [@testing-library/react](https://testing-library.com/docs/react-testing-library/intro) for component rendering.
+
+| File | Coverage |
+|---|---|
+| `src/lib/utils.test.ts` | `cn()` — class merging, falsy values, Tailwind conflict resolution |
+| `src/components/shared/LiveCounter.test.tsx` | `formatDuration()` — all duration units, partial-second flooring, negative clamping; `LiveCounter` — rendered output |
+| `src/routes/index.test.ts` | `applyOrder()`, `applyItemOrder()` — ID-based ordering, unknown IDs, remainder appending |
+| `src/routes/login.test.tsx` | `LoginPage` — mode switching, form submission, error display and clearing, post-login navigation |
+
 ## Lint
 
 ```bash
