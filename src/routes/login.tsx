@@ -16,15 +16,12 @@ export const Route = createFileRoute("/login")({
 	component: LoginPage,
 })
 
-type Mode = "login" | "register"
-
 export function LoginPage() {
-	const [mode, setMode] = useState<Mode>("login")
 	const [email, setEmail] = useState("")
 	const [password, setPassword] = useState("")
 	const [error, setError] = useState<string | null>(null)
 	const [isLoading, setIsLoading] = useState(false)
-	const { login, register } = useAuth()
+	const { login } = useAuth()
 	const navigate = useNavigate()
 
 	async function handleSubmit(e: React.FormEvent) {
@@ -33,11 +30,7 @@ export function LoginPage() {
 		setIsLoading(true)
 
 		try {
-			if (mode === "login") {
-				await login(email, password)
-			} else {
-				await register(email, password)
-			}
+			await login(email, password)
 			navigate({ to: "/" })
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Something went wrong")
@@ -51,9 +44,7 @@ export function LoginPage() {
 			<Card className="w-full max-w-sm">
 				<CardHeader className="text-center">
 					<CardTitle className="text-2xl">Interval Tracker</CardTitle>
-					<CardDescription>
-						{mode === "login" ? "Sign in to your account" : "Create an account"}
-					</CardDescription>
+					<CardDescription>Sign in to your account</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<form onSubmit={handleSubmit} className="space-y-4">
@@ -90,44 +81,8 @@ export function LoginPage() {
 						</div>
 
 						<Button type="submit" className="w-full" disabled={isLoading}>
-							{isLoading
-								? "Please wait…"
-								: mode === "login"
-									? "Sign In"
-									: "Create Account"}
+							{isLoading ? "Please wait…" : "Sign In"}
 						</Button>
-
-						<p className="text-center text-sm text-muted-foreground">
-							{mode === "login" ? (
-								<>
-									No account?{" "}
-									<button
-										type="button"
-										className="underline hover:text-foreground transition-colors"
-										onClick={() => {
-											setMode("register")
-											setError(null)
-										}}
-									>
-										Sign up
-									</button>
-								</>
-							) : (
-								<>
-									Have an account?{" "}
-									<button
-										type="button"
-										className="underline hover:text-foreground transition-colors"
-										onClick={() => {
-											setMode("login")
-											setError(null)
-										}}
-									>
-										Sign in
-									</button>
-								</>
-							)}
-						</p>
 					</form>
 				</CardContent>
 			</Card>
