@@ -1,6 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { toast } from "sonner"
+import { useQuery, useMutation } from "convex/react"
+import { api } from "../../convex/_generated/api"
+import type { Id } from "../../convex/_generated/dataModel"
 import { Navbar } from "@/components/layout/Navbar"
 import { LiveCounter, formatDuration } from "@/components/shared/LiveCounter"
 import { Button } from "@/components/ui/button"
@@ -19,15 +22,6 @@ import {
 	DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import {
-	databases,
-	DATABASE_ID,
-	ITEMS_COLLECTION,
-	INTERVALS_COLLECTION,
-	nowISO,
-} from "@/lib/appwrite/client"
-import { useAuth } from "@/lib/auth/auth-context"
-import { ID, Query, type Models } from "appwrite"
 import { RiRestartLine, RiTimeLine, RiArrowLeftLine, RiDeleteBinLine } from "@remixicon/react"
 
 export const Route = createFileRoute("/$itemId")({
@@ -36,12 +30,16 @@ export const Route = createFileRoute("/$itemId")({
 
 function ItemDetailPage() {
 	const { itemId } = Route.useParams()
-	const { user } = useAuth()
 	const navigate = useNavigate()
 
-	const [item, setItem] = useState<Models.Document | null>(null)
-	const [intervals, setIntervals] = useState<Models.Document[]>([])
-	const [isLoading, setIsLoading] = useState(true)
+	const item = useQuery(api.items.get, { itemId: itemId as Id<"items"> })
+	const rawIntervals = useQuery(api.intervals.listByItem, { itemId: itemId as Id<"items"> })
+
+	const createInterval = useMutation(api.intervals.create)
+	const endInterval = useMutation(api.intervals.end)
+	const removeItem = useMutation(api.items.remove)
+
+	const [isLoading] = useState(false)
 	const [now, setNow] = useState(new Date())
 	const [isRestarting, setIsRestarting] = useState(false)
 	const [showRestartFrom, setShowRestartFrom] = useState(false)
@@ -54,38 +52,20 @@ function ItemDetailPage() {
 		return () => clearInterval(timer)
 	}, [])
 
-	const loadData = useCallback(async () => {
-		if (!user) return
-		try {
-			const [itemDoc, intRes] = await Promise.all([
-				databases.getDocument(DATABASE_ID, ITEMS_COLLECTION, itemId),
-				databases.listDocuments(DATABASE_ID, INTERVALS_COLLECTION, [
-					Query.equal("itemId", itemId),
-					Query.equal("userId", user.$id),
-					Query.limit(500),
-				]),
-			])
-			setItem(itemDoc)
-			const sorted = [...intRes.documents].sort(
-				(a, b) => new Date(b.startedAt as string).getTime() - new Date(a.startedAt as string).getTime(),
-			)
-			setIntervals(sorted)
-		} catch {
-			toast.error("Failed to load item")
-		} finally {
-			setIsLoading(false)
-		}
-	}, [user, itemId])
+	const intervals = useMemo(() => {
+		if (!rawIntervals) return []
+		return [...rawIntervals].sort(
+			(a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+		)
+	}, [rawIntervals])
 
-	useEffect(() => {
-		loadData()
-	}, [loadData])
+	const isLoadingData = item === undefined || rawIntervals === undefined
 
 	const activeInterval = intervals.find((i) => !i.endedAt) ?? null
 	const completedIntervals = intervals.filter((i) => i.endedAt)
 
 	const durations = completedIntervals.map(
-		(i) => new Date(i.endedAt as string).getTime() - new Date(i.startedAt as string).getTime(),
+		(i) => new Date(i.endedAt as string).getTime() - new Date(i.startedAt).getTime(),
 	)
 
 	const averageDuration = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null
@@ -93,20 +73,12 @@ function ItemDetailPage() {
 	const longestDuration = durations.length ? Math.max(...durations) : null
 
 	async function doRestart(startedAt: string) {
-		if (!user) return
 		setIsRestarting(true)
 		try {
 			if (activeInterval) {
-				await databases.updateDocument(DATABASE_ID, INTERVALS_COLLECTION, activeInterval.$id, {
-					endedAt: nowISO(),
-				})
+				await endInterval({ intervalId: activeInterval._id, endedAt: new Date().toISOString() })
 			}
-			await databases.createDocument(DATABASE_ID, INTERVALS_COLLECTION, ID.unique(), {
-				itemId,
-				userId: user.$id,
-				startedAt,
-			})
-			await loadData()
+			await createInterval({ itemId: itemId as Id<"items">, startedAt })
 			toast.success("Restarted")
 		} catch {
 			toast.error("Failed to restart")
@@ -122,15 +94,13 @@ function ItemDetailPage() {
 	async function handleRestartFrom() {
 		if (!restartFromValue) return
 		setShowRestartFrom(false)
-		await doRestart(new Date(restartFromValue).toISOString().replace(/Z$/, "+00:00"))
+		await doRestart(new Date(restartFromValue).toISOString())
 	}
 
 	async function handleDelete() {
-		if (!user) return
 		setIsDeleting(true)
 		try {
-			await Promise.all(intervals.map((i) => databases.deleteDocument(DATABASE_ID, INTERVALS_COLLECTION, i.$id)))
-			await databases.deleteDocument(DATABASE_ID, ITEMS_COLLECTION, itemId)
+			await removeItem({ itemId: itemId as Id<"items"> })
 			toast.success("Item deleted")
 			navigate({ to: "/" })
 		} catch {
@@ -139,7 +109,7 @@ function ItemDetailPage() {
 		}
 	}
 
-	if (isLoading) {
+	if (isLoadingData || isLoading) {
 		return (
 			<div className="min-h-screen bg-background">
 				<Navbar />
@@ -169,7 +139,7 @@ function ItemDetailPage() {
 					<Link to="/" className="shrink-0 text-muted-foreground hover:text-foreground transition-colors">
 						<RiArrowLeftLine className="size-5" />
 					</Link>
-					<h1 className="text-2xl font-bold flex-1 truncate">{item.name as string}</h1>
+					<h1 className="text-2xl font-bold flex-1 truncate">{item.name}</h1>
 					<button
 						type="button"
 						onClick={() => setShowDeleteConfirm(true)}
@@ -218,7 +188,7 @@ function ItemDetailPage() {
 							<CardTitle className="text-base">Current interval</CardTitle>
 							<CardDescription>
 								<LiveCounter
-									startedAt={activeInterval.startedAt as string}
+									startedAt={activeInterval.startedAt}
 									now={now}
 								/>
 							</CardDescription>
@@ -236,9 +206,9 @@ function ItemDetailPage() {
 								variant="outline"
 								className="flex-1"
 								onClick={() => {
-									const now = new Date()
-									const offset = now.getTimezoneOffset() * 60000
-									const local = new Date(now.getTime() - offset)
+									const n = new Date()
+									const offset = n.getTimezoneOffset() * 60000
+									const local = new Date(n.getTime() - offset)
 									setRestartFromValue(local.toISOString().slice(0, 16))
 									setShowRestartFrom(true)
 								}}
@@ -260,10 +230,10 @@ function ItemDetailPage() {
 							{completedIntervals.map((interval, i) => {
 								const duration =
 									new Date(interval.endedAt as string).getTime() -
-									new Date(interval.startedAt as string).getTime()
+									new Date(interval.startedAt).getTime()
 								return (
 									<div
-										key={interval.$id}
+										key={interval._id}
 										className="flex items-center justify-between py-2 px-3 rounded-lg border bg-card text-sm"
 									>
 										<span className="text-muted-foreground">
@@ -285,7 +255,7 @@ function ItemDetailPage() {
 					</DialogHeader>
 					<p className="text-sm text-muted-foreground">
 						This will permanently delete{" "}
-						<span className="font-medium text-foreground">{item.name as string}</span>{" "}
+						<span className="font-medium text-foreground">{item.name}</span>{" "}
 						and all {intervals.length} interval{intervals.length !== 1 ? "s" : ""}. This cannot be undone.
 					</p>
 					<DialogFooter>
