@@ -15,7 +15,8 @@ A PWA for tracking time intervals between recurring events. Create named items, 
 ## Tech Stack
 
 - [TanStack Start](https://tanstack.com/start) — React full-stack framework
-- [Appwrite](https://appwrite.io) — auth and database (client SDK, browser session)
+- [Convex](https://convex.dev) — backend database and real-time queries
+- [better-auth](https://better-auth.com) — authentication (email/password, session management)
 - [shadcn/ui](https://ui.shadcn.com) — component library (new-york style, zinc)
 - [Tailwind CSS v4](https://tailwindcss.com)
 - [@dnd-kit](https://dndkit.com) — drag-and-drop for items and groups
@@ -23,38 +24,25 @@ A PWA for tracking time intervals between recurring events. Create named items, 
 - [Biome](https://biomejs.dev) — linting and formatting
 - [Bun](https://bun.sh) — package manager and runtime
 
-## Appwrite Setup
+## Convex Setup
 
-Create a project in the [Appwrite console](https://cloud.appwrite.io) and configure the following:
+Create a project in the [Convex dashboard](https://dashboard.convex.dev) and run:
 
-**Auth** — enable Email/Password under Auth → Settings
+```bash
+npx convex dev
+```
 
-**Database** — create a database, then add two collections:
-
-| Collection | Attribute | Type | Required |
-|---|---|---|---|
-| `items` | `name` | String 255 | Yes |
-| `items` | `userId` | String 36 | Yes |
-| `items` | `groupId` | String 36 | No |
-| `intervals` | `itemId` | String 36 | Yes |
-| `intervals` | `userId` | String 36 | Yes |
-| `intervals` | `startedAt` | DateTime | Yes |
-| `intervals` | `endedAt` | DateTime | No |
-| `groups` | `name` | String 255 | Yes |
-| `groups` | `userId` | String 36 | Yes |
-
-Add a `userId` index on each collection. Set permissions to role `users` → Read, Create, Update, Delete on all three.
-
-**Platform** — add a Web platform with hostname `localhost` (and your production domain when deploying).
+This deploys the schema (`convex/schema.ts`) and functions automatically — no manual collection or index setup required.
 
 ## Environment
 
-Copy `.env.local.example` or create `.env.local`:
+Create `.env.local`:
 
 ```
-VITE_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
-VITE_APPWRITE_PROJECT_ID=your_project_id
-VITE_APPWRITE_DATABASE_ID=your_database_id
+CONVEX_DEPLOYMENT=dev:your-deployment-name
+VITE_CONVEX_URL=https://your-deployment.convex.cloud
+CONVEX_SITE_URL=https://your-deployment.convex.site
+VITE_BETTER_AUTH_URL=http://localhost:3002
 ```
 
 ## Development
@@ -109,10 +97,9 @@ src/
       LiveCounter.tsx
     ui/             # shadcn components
   lib/
-    appwrite/
-      client.ts     # Appwrite client, collection IDs, nowISO()
     auth/
-      auth-context.tsx
+      auth-client.ts    # better-auth client
+      auth-context.tsx  # AuthProvider, useAuth
 public/
   manifest.json
   icon-192.png
