@@ -267,7 +267,7 @@ function HomePage() {
 		if (!user || rawGroups === undefined) return
 		setOrderedGroupIds(readJson<string[]>(goKey(user.id), []))
 		setCollapsed(new Set(readJson<string[]>(colKey(user.id), [])))
-	}, [user, rawGroups !== undefined])
+	}, [user, rawGroups])
 
 	useEffect(() => {
 		if (rawItems === undefined) return
@@ -278,7 +278,7 @@ function HomePage() {
 		}
 		newOrders.ungrouped = readJson<string[]>(ioKey("ungrouped"), [])
 		setOrderedItemIds(newOrders)
-	}, [rawItems !== undefined])
+	}, [rawItems])
 
 	// Build ordered groups
 	const orderedGroups = useMemo(() => {
@@ -321,6 +321,7 @@ function HomePage() {
 	const displayGroupedItems = localGroupedItems ?? groupedItems
 
 	// Reset local state when server data updates
+	// biome-ignore lint/correctness/useExhaustiveDependencies: groupedItems is the trigger, not used in the body
 	useEffect(() => {
 		setLocalGroupedItems(null)
 	}, [groupedItems])

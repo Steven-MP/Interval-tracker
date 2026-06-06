@@ -40,12 +40,14 @@ let applyItemOrder: (items: ItemWithInterval[], savedIds: string[]) => ItemWithI
 
 beforeAll(async () => {
 	const mod = await import("./index")
+	// biome-ignore lint/suspicious/noExplicitAny: test stub with simplified type
 	applyOrder = mod.applyOrder as any
 	applyItemOrder = mod.applyItemOrder
 })
 
 // Minimal stubs — tests only exercise the ID-based ordering logic
 function doc(id: string) {
+	// biome-ignore lint/suspicious/noExplicitAny: minimal stub for ordering tests
 	return { _id: id } as any
 }
 
