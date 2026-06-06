@@ -84,6 +84,9 @@ export function LoginPage() {
 							{isLoading ? "Please wait…" : "Sign In"}
 						</Button>
 					</form>
+					<p className="mt-4 text-center text-sm text-muted-foreground">
+						Sign-ups are currently unavailable.
+					</p>
 				</CardContent>
 			</Card>
 		</div>
