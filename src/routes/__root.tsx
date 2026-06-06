@@ -8,12 +8,17 @@ import {
 	useNavigate,
 } from "@tanstack/react-router"
 
+import { ConvexReactClient } from "convex/react"
+import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react"
+import { authClient } from "@/lib/auth/auth-client"
 import { AuthProvider, useAuth } from "@/lib/auth/auth-context"
 import { Toaster } from "@/components/ui/sonner"
 
 import appCss from "../styles.css?url"
 
 const DARK_MODE_SCRIPT = `(function(){var mq=window.matchMedia('(prefers-color-scheme: dark)');function apply(e){document.documentElement.classList.toggle('dark',e.matches)}apply(mq);mq.addEventListener('change',apply);})();`
+
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string)
 
 export const Route = createRootRoute({
 	head: () => ({
@@ -49,14 +54,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 		<html lang="en" suppressHydrationWarning>
 			<head>
 				{/* biome-ignore lint/security/noDangerouslySetInnerHtml: intentional — inline script for flicker-free dark mode before first paint */}
-			<script dangerouslySetInnerHTML={{ __html: DARK_MODE_SCRIPT }} />
+				<script dangerouslySetInnerHTML={{ __html: DARK_MODE_SCRIPT }} />
 				<HeadContent />
 			</head>
 			<body>
-				<AuthProvider>
-					{children}
-					<Toaster richColors />
-				</AuthProvider>
+				<ConvexBetterAuthProvider client={convex} authClient={authClient}>
+					<AuthProvider>
+						{children}
+						<Toaster richColors />
+					</AuthProvider>
+				</ConvexBetterAuthProvider>
 				<Scripts />
 			</body>
 		</html>

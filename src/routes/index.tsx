@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { toast } from "sonner"
 import {
 	DndContext,
@@ -19,21 +19,15 @@ import {
 	arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { useQuery, useMutation } from "convex/react"
+import { api } from "../../convex/_generated/api"
+import type { Id } from "../../convex/_generated/dataModel"
 import { Navbar } from "@/components/layout/Navbar"
 import { LiveCounter } from "@/components/shared/LiveCounter"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardTitle, CardDescription } from "@/components/ui/card"
-import {
-	databases,
-	DATABASE_ID,
-	ITEMS_COLLECTION,
-	INTERVALS_COLLECTION,
-	GROUPS_COLLECTION,
-	nowISO,
-} from "@/lib/appwrite/client"
 import { useAuth } from "@/lib/auth/auth-context"
-import { ID, Query, type Models } from "appwrite"
 import { RiAddLine, RiTimeLine, RiDraggable, RiArrowDownSLine, RiDeleteBinLine } from "@remixicon/react"
 
 export const Route = createFileRoute("/")({
@@ -41,8 +35,18 @@ export const Route = createFileRoute("/")({
 })
 
 export interface ItemWithInterval {
-	item: Models.Document
-	activeInterval: Models.Document | null
+	item: {
+		_id: Id<"items">
+		name: string
+		userId: string
+		groupId?: Id<"groups">
+		createdAt: string
+	}
+	activeInterval: {
+		_id: Id<"intervals">
+		startedAt: string
+		endedAt?: string
+	} | null
 }
 
 // ─── localStorage helpers ──────────────────────────────────────────────────
@@ -70,17 +74,17 @@ function writeJson(key: string, value: unknown) {
 	localStorage.setItem(key, JSON.stringify(value))
 }
 
-export function applyOrder(items: Models.Document[], savedIds: string[]): Models.Document[] {
-	const map = new Map(items.map((i) => [i.$id, i]))
+export function applyOrder<T extends { _id: string }>(items: T[], savedIds: string[]): T[] {
+	const map = new Map(items.map((i) => [i._id, i]))
 	const ordered = savedIds.flatMap((id) => { const v = map.get(id); return v ? [v] : [] })
-	const rest = items.filter((i) => !savedIds.includes(i.$id))
+	const rest = items.filter((i) => !savedIds.includes(i._id))
 	return [...ordered, ...rest]
 }
 
 export function applyItemOrder(items: ItemWithInterval[], savedIds: string[]): ItemWithInterval[] {
-	const map = new Map(items.map((i) => [i.item.$id, i]))
+	const map = new Map(items.map((i) => [i.item._id as string, i]))
 	const ordered = savedIds.flatMap((id) => { const v = map.get(id); return v ? [v] : [] })
-	const rest = items.filter((i) => !savedIds.includes(i.item.$id))
+	const rest = items.filter((i) => !savedIds.includes(i.item._id as string))
 	return [...ordered, ...rest]
 }
 
@@ -88,8 +92,8 @@ export function applyItemOrder(items: ItemWithInterval[], savedIds: string[]): I
 
 interface SortableItemCardProps {
 	id: string
-	item: Models.Document
-	activeInterval: Models.Document | null
+	item: ItemWithInterval["item"]
+	activeInterval: ItemWithInterval["activeInterval"]
 	now: Date
 }
 
@@ -113,13 +117,13 @@ function SortableItemCard({ id, item, activeInterval, now }: SortableItemCardPro
 					</button>
 					<Link
 						to="/$itemId"
-						params={{ itemId: item.$id }}
+						params={{ itemId: item._id }}
 						className="flex items-center justify-between gap-3 flex-1 min-w-0"
 					>
-						<CardTitle className="truncate">{item.name as string}</CardTitle>
+						<CardTitle className="truncate">{item.name}</CardTitle>
 						{activeInterval && (
 							<CardDescription className="shrink-0 font-mono tabular-nums">
-								<LiveCounter startedAt={activeInterval.startedAt as string} now={now} />
+								<LiveCounter startedAt={activeInterval.startedAt} now={now} />
 							</CardDescription>
 						)}
 					</Link>
@@ -137,7 +141,7 @@ function DroppableItemList({ groupId, children, isEmpty }: { groupId: string; ch
 	return (
 		<div
 			ref={setNodeRef}
-			className={`space-y-2 transition-colors rounded-lg ${isEmpty ? "min-h-[40px] flex items-center justify-center" : "min-h-[4px]"} ${isOver ? "bg-accent/20" : ""}`}
+			className={`space-y-2 transition-colors rounded-lg ${isEmpty ? "min-h-10 flex items-center justify-center" : "min-h-1"} ${isOver ? "bg-accent/20" : ""}`}
 		>
 			{isEmpty ? (
 				<p className="text-xs text-muted-foreground/40 select-none">Drag items here</p>
@@ -151,21 +155,21 @@ function DroppableItemList({ groupId, children, isEmpty }: { groupId: string; ch
 // ─── SortableGroup ─────────────────────────────────────────────────────────
 
 interface SortableGroupProps {
-	group: Models.Document
+	group: { _id: Id<"groups">; name: string }
 	items: ItemWithInterval[]
 	now: Date
 	isCollapsed: boolean
 	onToggleCollapse: () => void
-	onDelete: (groupId: string) => void
+	onDelete: (groupId: Id<"groups">) => void
 }
 
 function SortableGroup({ group, items, now, isCollapsed, onToggleCollapse, onDelete }: SortableGroupProps) {
 	const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-		id: `group-${group.$id}`,
+		id: `group-${group._id}`,
 		data: { type: "group" },
 	})
 
-	const itemIds = items.map((i) => i.item.$id)
+	const itemIds = items.map((i) => i.item._id)
 
 	return (
 		<div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}>
@@ -186,12 +190,12 @@ function SortableGroup({ group, items, now, isCollapsed, onToggleCollapse, onDel
 					<RiArrowDownSLine
 						className={`size-4 shrink-0 transition-transform duration-200 ${isCollapsed ? "-rotate-90" : ""}`}
 					/>
-					<span className="truncate">{group.name as string}</span>
+					<span className="truncate">{group.name}</span>
 					<span className="ml-1 text-xs text-muted-foreground font-normal shrink-0">({items.length})</span>
 				</button>
 				<button
 					type="button"
-					onClick={() => onDelete(group.$id)}
+					onClick={() => onDelete(group._id)}
 					className="shrink-0 p-1 text-muted-foreground/30 hover:text-destructive transition-colors"
 				>
 					<RiDeleteBinLine className="size-3.5" />
@@ -201,11 +205,11 @@ function SortableGroup({ group, items, now, isCollapsed, onToggleCollapse, onDel
 			{!isCollapsed && (
 				<div className="mt-2 ml-6">
 					<SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-						<DroppableItemList groupId={group.$id} isEmpty={items.length === 0}>
+						<DroppableItemList groupId={group._id} isEmpty={items.length === 0}>
 							{items.map(({ item, activeInterval }) => (
 								<SortableItemCard
-									key={item.$id}
-									id={item.$id}
+									key={item._id}
+									id={item._id}
 									item={item}
 									activeInterval={activeInterval}
 									now={now}
@@ -223,15 +227,27 @@ function SortableGroup({ group, items, now, isCollapsed, onToggleCollapse, onDel
 
 function HomePage() {
 	const { user } = useAuth()
-	const [groups, setGroups] = useState<Models.Document[]>([])
-	const [groupedItems, setGroupedItems] = useState<Record<string, ItemWithInterval[]>>({ ungrouped: [] })
-	const [isLoadingItems, setIsLoadingItems] = useState(true)
+
+	const rawItems = useQuery(api.items.list)
+	const rawGroups = useQuery(api.groups.list)
+	const activeIntervals = useQuery(api.intervals.listActiveByUser)
+
+	const createItem = useMutation(api.items.create)
+	const createGroup = useMutation(api.groups.create)
+	const removeGroup = useMutation(api.groups.remove)
+	const updateItemGroup = useMutation(api.items.updateGroup)
+
+	const isLoadingItems = rawItems === undefined || rawGroups === undefined || activeIntervals === undefined
+
+	const [orderedGroupIds, setOrderedGroupIds] = useState<string[]>([])
+	const [orderedItemIds, setOrderedItemIds] = useState<Record<string, string[]>>({})
+	const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
 	const [newItemName, setNewItemName] = useState("")
 	const [isCreating, setIsCreating] = useState(false)
 	const [now, setNow] = useState(new Date())
 	const [activeId, setActiveId] = useState<string | null>(null)
 	const [activeType, setActiveType] = useState<"group" | "item" | null>(null)
-	const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 	const [newGroupName, setNewGroupName] = useState("")
 	const [isAddingGroup, setIsAddingGroup] = useState(false)
 	const [isCreatingGroup, setIsCreatingGroup] = useState(false)
@@ -246,62 +262,73 @@ function HomePage() {
 		return () => clearInterval(timer)
 	}, [])
 
-	const loadData = useCallback(async () => {
-		if (!user) return
-		try {
-			const [itemsRes, groupsRes] = await Promise.all([
-				databases.listDocuments(DATABASE_ID, ITEMS_COLLECTION, [Query.equal("userId", user.$id), Query.limit(100)]),
-				databases.listDocuments(DATABASE_ID, GROUPS_COLLECTION, [Query.equal("userId", user.$id), Query.limit(100)]),
-			])
-
-			const withIntervals = await Promise.all(
-				itemsRes.documents.map(async (item) => {
-					const intRes = await databases.listDocuments(DATABASE_ID, INTERVALS_COLLECTION, [
-						Query.equal("itemId", item.$id),
-						Query.limit(100),
-					])
-					const activeInterval = intRes.documents.find((i) => !i.endedAt) ?? null
-					return { item, activeInterval }
-				}),
-			)
-
-			const savedGroupOrder = readJson<string[]>(goKey(user.$id), [])
-			const orderedGroups = applyOrder(groupsRes.documents, savedGroupOrder)
-			setGroups(orderedGroups)
-
-			const newGrouped: Record<string, ItemWithInterval[]> = { ungrouped: [] }
-			for (const g of orderedGroups) {
-				newGrouped[g.$id] = []
-			}
-			for (const iwi of withIntervals) {
-				const gId = iwi.item.groupId as string | null
-				if (gId && newGrouped[gId] !== undefined) {
-					newGrouped[gId].push(iwi)
-				} else {
-					newGrouped.ungrouped.push(iwi)
-				}
-			}
-			for (const key of Object.keys(newGrouped)) {
-				const savedOrder = readJson<string[]>(ioKey(key), [])
-				newGrouped[key] = applyItemOrder(newGrouped[key], savedOrder)
-			}
-
-			setGroupedItems(newGrouped)
-			setCollapsed(new Set(readJson<string[]>(colKey(user.$id), [])))
-		} catch {
-			toast.error("Failed to load items")
-		} finally {
-			setIsLoadingItems(false)
-		}
-	}, [user])
+	// Load saved order from localStorage when data first arrives
+	useEffect(() => {
+		if (!user || rawGroups === undefined) return
+		setOrderedGroupIds(readJson<string[]>(goKey(user.id), []))
+		setCollapsed(new Set(readJson<string[]>(colKey(user.id), [])))
+	}, [user, rawGroups])
 
 	useEffect(() => {
-		loadData()
-	}, [loadData])
+		if (rawItems === undefined) return
+		const keys = new Set(rawItems.map((i) => i.groupId ?? "ungrouped"))
+		const newOrders: Record<string, string[]> = {}
+		for (const key of keys) {
+			newOrders[key] = readJson<string[]>(ioKey(key), [])
+		}
+		newOrders.ungrouped = readJson<string[]>(ioKey("ungrouped"), [])
+		setOrderedItemIds(newOrders)
+	}, [rawItems])
 
-	function findItemGroupId(itemId: string): string {
-		for (const [groupId, items] of Object.entries(groupedItems)) {
-			if (items.some((i) => i.item.$id === itemId)) return groupId
+	// Build ordered groups
+	const orderedGroups = useMemo(() => {
+		if (!rawGroups) return []
+		return applyOrder(rawGroups, orderedGroupIds)
+	}, [rawGroups, orderedGroupIds])
+
+	// Build groupedItems with active intervals
+	const groupedItems = useMemo(() => {
+		if (!rawItems || !activeIntervals) return { ungrouped: [] } as Record<string, ItemWithInterval[]>
+
+		const activeMap = new Map(activeIntervals.map((i) => [i.itemId, i]))
+
+		const withIntervals: ItemWithInterval[] = rawItems.map((item) => ({
+			item,
+			activeInterval: activeMap.get(item._id) ?? null,
+		}))
+
+		const result: Record<string, ItemWithInterval[]> = { ungrouped: [] }
+		for (const g of orderedGroups) {
+			result[g._id] = []
+		}
+		for (const iwi of withIntervals) {
+			const gId = iwi.item.groupId ?? undefined
+			if (gId && result[gId] !== undefined) {
+				result[gId].push(iwi)
+			} else {
+				result.ungrouped.push(iwi)
+			}
+		}
+		for (const key of Object.keys(result)) {
+			const savedOrder = orderedItemIds[key] ?? []
+			result[key] = applyItemOrder(result[key], savedOrder)
+		}
+		return result
+	}, [rawItems, activeIntervals, orderedGroups, orderedItemIds])
+
+	// Local override for drag state — we mutate groupedItems in drag handlers
+	const [localGroupedItems, setLocalGroupedItems] = useState<Record<string, ItemWithInterval[]> | null>(null)
+	const displayGroupedItems = localGroupedItems ?? groupedItems
+
+	// Reset local state when server data updates
+	// biome-ignore lint/correctness/useExhaustiveDependencies: groupedItems is the trigger, not used in the body
+	useEffect(() => {
+		setLocalGroupedItems(null)
+	}, [groupedItems])
+
+	function findItemGroupId(itemId: string, items: Record<string, ItemWithInterval[]>): string {
+		for (const [groupId, arr] of Object.entries(items)) {
+			if (arr.some((i) => i.item._id === itemId)) return groupId
 		}
 		return "ungrouped"
 	}
@@ -316,7 +343,7 @@ function HomePage() {
 		} else {
 			activeTypeRef.current = "item"
 			setActiveType("item")
-			dragSourceGroupRef.current = findItemGroupId(id)
+			dragSourceGroupRef.current = findItemGroupId(id, displayGroupedItems)
 		}
 		setActiveId(id)
 	}
@@ -326,7 +353,8 @@ function HomePage() {
 
 		const activeItemId = active.id as string
 		const overId = over.id as string
-		const currentGroupId = findItemGroupId(activeItemId)
+		const current = localGroupedItems ?? groupedItems
+		const currentGroupId = findItemGroupId(activeItemId, current)
 
 		let targetGroupId: string
 		if (overId.startsWith("drop-")) {
@@ -334,32 +362,34 @@ function HomePage() {
 		} else if (overId.startsWith("group-")) {
 			return
 		} else {
-			targetGroupId = findItemGroupId(overId)
+			targetGroupId = findItemGroupId(overId, current)
 		}
 
 		if (currentGroupId === targetGroupId) {
-			const overItemIdx = groupedItems[currentGroupId]?.findIndex((i) => i.item.$id === overId) ?? -1
+			const overItemIdx = current[currentGroupId]?.findIndex((i) => i.item._id === overId) ?? -1
 			if (overItemIdx === -1) return
-			setGroupedItems((prev) => {
-				const items = prev[currentGroupId]
-				const oldIdx = items.findIndex((i) => i.item.$id === activeItemId)
+			setLocalGroupedItems((prev) => {
+				const base = prev ?? groupedItems
+				const items = base[currentGroupId]
+				const oldIdx = items.findIndex((i) => i.item._id === activeItemId)
 				if (oldIdx === -1 || oldIdx === overItemIdx) return prev
-				return { ...prev, [currentGroupId]: arrayMove(items, oldIdx, overItemIdx) }
+				return { ...base, [currentGroupId]: arrayMove(items, oldIdx, overItemIdx) }
 			})
 		} else {
-			setGroupedItems((prev) => {
-				const src = [...(prev[currentGroupId] ?? [])]
-				const dst = [...(prev[targetGroupId] ?? [])]
-				const idx = src.findIndex((i) => i.item.$id === activeItemId)
+			setLocalGroupedItems((prev) => {
+				const base = prev ?? groupedItems
+				const src = [...(base[currentGroupId] ?? [])]
+				const dst = [...(base[targetGroupId] ?? [])]
+				const idx = src.findIndex((i) => i.item._id === activeItemId)
 				if (idx === -1) return prev
 				const [moved] = src.splice(idx, 1)
-				const overIdx = dst.findIndex((i) => i.item.$id === overId)
+				const overIdx = dst.findIndex((i) => i.item._id === overId)
 				if (overIdx !== -1) {
 					dst.splice(overIdx, 0, moved)
 				} else {
 					dst.push(moved)
 				}
-				return { ...prev, [currentGroupId]: src, [targetGroupId]: dst }
+				return { ...base, [currentGroupId]: src, [targetGroupId]: dst }
 			})
 		}
 	}
@@ -373,28 +403,29 @@ function HomePage() {
 
 		if (!over || !user) return
 		const overId = over.id as string
+		const current = localGroupedItems ?? groupedItems
 
 		if (type === "group") {
-			setGroups((prev) => {
-				const oldIdx = prev.findIndex((g) => `group-${g.$id}` === id)
-				const newIdx = prev.findIndex((g) => `group-${g.$id}` === overId)
+			setOrderedGroupIds((prev) => {
+				const oldIdx = orderedGroups.findIndex((g) => `group-${g._id}` === id)
+				const newIdx = orderedGroups.findIndex((g) => `group-${g._id}` === overId)
 				if (oldIdx === -1 || newIdx === -1 || oldIdx === newIdx) return prev
-				const next = arrayMove(prev, oldIdx, newIdx)
-				writeJson(goKey(user.$id), next.map((g) => g.$id))
+				const next = arrayMove(orderedGroups, oldIdx, newIdx).map((g) => g._id)
+				writeJson(goKey(user.id), next)
 				return next
 			})
 		} else if (type === "item") {
-			const finalGroupId = findItemGroupId(id)
+			const finalGroupId = findItemGroupId(id, current)
 			const sourceGroupId = dragSourceGroupRef.current
-			writeJson(ioKey(finalGroupId), groupedItems[finalGroupId]?.map((i) => i.item.$id) ?? [])
+			writeJson(ioKey(finalGroupId), current[finalGroupId]?.map((i) => i.item._id) ?? [])
 			if (sourceGroupId !== finalGroupId) {
-				writeJson(ioKey(sourceGroupId), groupedItems[sourceGroupId]?.map((i) => i.item.$id) ?? [])
-				const newGroupId = finalGroupId === "ungrouped" ? null : finalGroupId
+				writeJson(ioKey(sourceGroupId), current[sourceGroupId]?.map((i) => i.item._id) ?? [])
+				const newGroupId = finalGroupId === "ungrouped" ? undefined : finalGroupId as Id<"groups">
 				try {
-					await databases.updateDocument(DATABASE_ID, ITEMS_COLLECTION, id, { groupId: newGroupId })
+					await updateItemGroup({ itemId: id as Id<"items">, groupId: newGroupId })
 				} catch {
 					toast.error("Failed to save item group")
-					loadData()
+					setLocalGroupedItems(null)
 				}
 			}
 		}
@@ -404,20 +435,11 @@ function HomePage() {
 
 	async function handleCreate(e: React.FormEvent) {
 		e.preventDefault()
-		if (!user || !newItemName.trim()) return
+		if (!newItemName.trim()) return
 		setIsCreating(true)
 		try {
-			const item = await databases.createDocument(DATABASE_ID, ITEMS_COLLECTION, ID.unique(), {
-				name: newItemName.trim(),
-				userId: user.$id,
-			})
-			await databases.createDocument(DATABASE_ID, INTERVALS_COLLECTION, ID.unique(), {
-				itemId: item.$id,
-				userId: user.$id,
-				startedAt: nowISO(),
-			})
+			await createItem({ name: newItemName.trim() })
 			setNewItemName("")
-			await loadData()
 			toast.success("Item created")
 		} catch (err) {
 			console.error("Create item error:", err)
@@ -434,16 +456,12 @@ function HomePage() {
 		if (!user || !newGroupName.trim()) return
 		setIsCreatingGroup(true)
 		try {
-			const group = await databases.createDocument(DATABASE_ID, GROUPS_COLLECTION, ID.unique(), {
-				name: newGroupName.trim(),
-				userId: user.$id,
-			})
-			setGroups((prev) => {
-				const next = [...prev, group]
-				writeJson(goKey(user.$id), next.map((g) => g.$id))
+			const groupId = await createGroup({ name: newGroupName.trim() })
+			setOrderedGroupIds((prev) => {
+				const next = [...prev, groupId]
+				writeJson(goKey(user.id), next)
 				return next
 			})
-			setGroupedItems((prev) => ({ ...prev, [group.$id]: [] }))
 			setNewGroupName("")
 			setIsAddingGroup(false)
 			toast.success("Group created")
@@ -456,24 +474,20 @@ function HomePage() {
 
 	// ─── Delete group ────────────────────────────────────────────────────────
 
-	async function handleDeleteGroup(groupId: string) {
+	async function handleDeleteGroup(groupId: Id<"groups">) {
 		if (!user) return
 		try {
-			await databases.deleteDocument(DATABASE_ID, GROUPS_COLLECTION, groupId)
 			const itemsInGroup = groupedItems[groupId] ?? []
+			await removeGroup({ groupId })
 			await Promise.all(
 				itemsInGroup.map(({ item }) =>
-					databases.updateDocument(DATABASE_ID, ITEMS_COLLECTION, item.$id, { groupId: null }),
+					updateItemGroup({ itemId: item._id, groupId: undefined }),
 				),
 			)
-			setGroups((prev) => {
-				const next = prev.filter((g) => g.$id !== groupId)
-				writeJson(goKey(user.$id), next.map((g) => g.$id))
+			setOrderedGroupIds((prev) => {
+				const next = prev.filter((id) => id !== groupId)
+				writeJson(goKey(user.id), next)
 				return next
-			})
-			setGroupedItems((prev) => {
-				const { [groupId]: removed, ...rest } = prev
-				return { ...rest, ungrouped: [...(rest.ungrouped ?? []), ...(removed ?? [])] }
 			})
 			toast.success("Group deleted")
 		} catch {
@@ -488,7 +502,7 @@ function HomePage() {
 			const next = new Set(prev)
 			if (next.has(groupId)) next.delete(groupId)
 			else next.add(groupId)
-			if (user) writeJson(colKey(user.$id), [...next])
+			if (user) writeJson(colKey(user.id), [...next])
 			return next
 		})
 	}
@@ -497,16 +511,16 @@ function HomePage() {
 
 	const activeItem =
 		activeId && activeType === "item"
-			? Object.values(groupedItems)
+			? Object.values(displayGroupedItems)
 					.flat()
-					.find((i) => i.item.$id === activeId)
+					.find((i) => i.item._id === activeId)
 			: null
 	const activeGroup =
-		activeId && activeType === "group" ? groups.find((g) => `group-${g.$id}` === activeId) : null
+		activeId && activeType === "group" ? orderedGroups.find((g) => `group-${g._id}` === activeId) : null
 
-	const groupIds = groups.map((g) => `group-${g.$id}`)
-	const ungroupedItems = groupedItems.ungrouped ?? []
-	const isEmpty = groups.length === 0 && Object.values(groupedItems).every((arr) => arr.length === 0)
+	const groupIds = orderedGroups.map((g) => `group-${g._id}`)
+	const ungroupedItems = displayGroupedItems.ungrouped ?? []
+	const isEmpty = orderedGroups.length === 0 && Object.values(displayGroupedItems).every((arr) => arr.length === 0)
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -578,17 +592,17 @@ function HomePage() {
 						onDragEnd={handleDragEnd}
 					>
 						<div className="space-y-4">
-							{groups.length > 0 && (
+							{orderedGroups.length > 0 && (
 								<SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
 									<div className="space-y-4">
-										{groups.map((group) => (
+										{orderedGroups.map((group) => (
 											<SortableGroup
-												key={group.$id}
+												key={group._id}
 												group={group}
-												items={groupedItems[group.$id] ?? []}
+												items={displayGroupedItems[group._id] ?? []}
 												now={now}
-												isCollapsed={collapsed.has(group.$id)}
-												onToggleCollapse={() => toggleCollapse(group.$id)}
+												isCollapsed={collapsed.has(group._id)}
+												onToggleCollapse={() => toggleCollapse(group._id)}
 												onDelete={handleDeleteGroup}
 											/>
 										))}
@@ -598,18 +612,18 @@ function HomePage() {
 
 							{ungroupedItems.length > 0 && (
 								<>
-									{groups.length > 0 && (
+									{orderedGroups.length > 0 && (
 										<p className="text-xs text-muted-foreground/50 font-medium uppercase tracking-wider">Ungrouped</p>
 									)}
 									<SortableContext
-										items={ungroupedItems.map((i) => i.item.$id)}
+										items={ungroupedItems.map((i) => i.item._id)}
 										strategy={verticalListSortingStrategy}
 									>
 										<DroppableItemList groupId="ungrouped">
 											{ungroupedItems.map(({ item, activeInterval }) => (
 												<SortableItemCard
-													key={item.$id}
-													id={item.$id}
+													key={item._id}
+													id={item._id}
 													item={item}
 													activeInterval={activeInterval}
 													now={now}
@@ -629,10 +643,10 @@ function HomePage() {
 											<RiDraggable className="size-4" />
 										</span>
 										<div className="flex items-center justify-between gap-3 flex-1 min-w-0">
-											<CardTitle className="truncate">{activeItem.item.name as string}</CardTitle>
+											<CardTitle className="truncate">{activeItem.item.name}</CardTitle>
 											{activeItem.activeInterval && (
 												<CardDescription className="shrink-0 font-mono tabular-nums">
-													<LiveCounter startedAt={activeItem.activeInterval.startedAt as string} now={now} />
+													<LiveCounter startedAt={activeItem.activeInterval.startedAt} now={now} />
 												</CardDescription>
 											)}
 										</div>
@@ -642,7 +656,7 @@ function HomePage() {
 							{activeGroup && (
 								<div className="flex items-center gap-2 bg-background border rounded-lg px-3 py-2 shadow-lg">
 									<RiDraggable className="size-4 text-muted-foreground/50" />
-									<span className="text-sm font-semibold">{activeGroup.name as string}</span>
+									<span className="text-sm font-semibold">{activeGroup.name}</span>
 								</div>
 							)}
 						</DragOverlay>

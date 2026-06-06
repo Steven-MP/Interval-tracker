@@ -1,8 +1,18 @@
 import { describe, it, expect, mock, afterEach, beforeAll } from "bun:test"
 import { render, screen, fireEvent, cleanup, act } from "@testing-library/react"
+import type { ComponentType } from "react"
 
 const mockNavigate = mock(() => {})
 const mockLogin = mock(async (_email: string, _password: string) => {})
+
+mock.module("../lib/auth/auth-client", () => ({
+	authClient: {
+		useSession: () => ({ data: null, isPending: false }),
+		signIn: { email: async () => ({ error: null }) },
+		signUp: { email: async () => ({ error: null }) },
+		signOut: async () => {},
+	},
+}))
 
 mock.module("@tanstack/react-router", () => ({
 	useNavigate: () => mockNavigate,
@@ -19,7 +29,7 @@ mock.module("../lib/auth/auth-context", () => ({
 	}),
 }))
 
-let LoginPage: () => JSX.Element
+let LoginPage: ComponentType<object>
 
 beforeAll(async () => {
 	const mod = await import("./login")
